@@ -5,8 +5,9 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:ably_flutter/ably_flutter.dart' as ably;
+import '../ably/ably_flutter.dart' as ably;
 
 void main() {
   runApp(const MyApp());
@@ -40,24 +41,17 @@ class MyHomePage extends StatefulWidget {
 
 class Env{
 
-  static String title = 'QuickBite';
   static String url = 'staging-api.quickbite.menu';
   static String path = 'api/v1/drivers/';
-  static Color accent = Color.fromRGBO(255, 83, 73, 1);
-  static Color tertiary = Color.fromRGBO(241, 218, 196, 1);
-  static Color shade = Color.fromRGBO(22, 27, 51, 1);
-  static double offsetbottom = 70;
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-
-  ably.RealtimeChannel? chansub, chanpub;
 
   @override
   Widget build(BuildContext context) => Scaffold(
     body : Center(
       child : FlatButton(
-        color : Env.accent,
+        color : Colors.redAccent,
         padding : EdgeInsets.zero, 
         height : 40,
         child : Text(
@@ -68,9 +62,7 @@ class _MyHomePageState extends State<MyHomePage> {
             fontWeight : FontWeight.bold
           )
         ),
-        onPressed : (){
-          throw Exception('TESTING');
-          // ping();
+        onPressed : () async{
         },
         shape : RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10)
@@ -86,30 +78,27 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void init() async{
     Map data = await login('driver@qb.menu', 'abcd1234');
-    print(data);
+    ably.RealtimeChannel? chansub, chanpub;
     ably.ClientOptions options = ably.ClientOptions(
       clientId : data['id'],
       authUrl : 'https://staging-api.quickbite.menu/api/v1/drivers/ably-auth',
       authHeaders : {
         'Authorization' : data['token']
-      },
-      authCallback : (ably.TokenParams params) async{
-        print(params);
-        return Object();
       }
     );
     ably.Realtime realtime = await ably.Realtime(options : options);
-    // await realtime.connection.on().listen((ably.ConnectionStateChange csc){
-    //   print('ConnectionStateChange : ${csc}');
-    // });
-    // chansub = await realtime.channels.get('task${data['id']}');
-    // chanpub = await realtime.channels.get('staging.driver.location');
-    // await chansub!.on().listen((ably.ChannelStateChange csc) async {
-    //   print('ChannelStateChange : ${csc}');
-    // });
-    // StreamSubscription<ably.Message> subs = chansub!.subscribe().listen((ably.Message message){
-    //   print('MESSAGE : ${message}');
-    // });
+    return;
+    await realtime.connection.on().listen((ably.ConnectionStateChange csc){
+      print('ConnectionStateChange : ${csc}');
+    });
+    chansub = await realtime.channels.get('task${data['id']}');
+    chanpub = await realtime.channels.get('staging.driver.location');
+    await chansub.on().listen((ably.ChannelStateChange csc) async {
+      print('ChannelStateChange : ${csc}');
+    });
+    StreamSubscription<ably.Message> subs = chansub.subscribe().listen((ably.Message message){
+      print('MESSAGE : ${message}');
+    });
   }
 
   Future<Map> login(String email, String password) async{

@@ -11,8 +11,8 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.2
-  ably_flutter: ^1.2.15
   http: ^0.13.5
+  ably_flutter: ^1.2.15
 
 dev_dependencies:
   flutter_test:
