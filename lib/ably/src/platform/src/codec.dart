@@ -280,7 +280,9 @@ class Codec extends StandardMessageCodec {
         jsonMap, TxClientOptions.channelRetryTimeout, v.channelRetryTimeout);
     _writeToJson(jsonMap, TxClientOptions.transportParams, v.transportParams);
     _writeToJson(jsonMap, TxClientOptions.dartVersion, dartVersion());
-    print('\x1B[32mCLIENT OPTIONS\x1B[0m : ${jsonMap}');
+    print('\x1B[32mCLIENT OPTIONS\x1B[0m');
+    for(String key in jsonMap.keys) print('${key} : ${jsonMap[key]}');
+    print('\x1B[32m===========================\x1B[0m');
     return jsonMap;
   }
 

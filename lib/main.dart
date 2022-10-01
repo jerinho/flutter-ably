@@ -7,6 +7,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../ably/ably_flutter.dart' as ably;
 
 void main() {
@@ -20,20 +21,13 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      title : 'Ably',
+      home : MyHomePage(),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-
-  const MyHomePage({Key? key, required this.title}) : super(key: key);
-
-  final String title;
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
@@ -47,29 +41,41 @@ class Env{
 
 class _MyHomePageState extends State<MyHomePage> {
 
+  Map<String, User> users = {};
+  BuildContext? scaffold;
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body : Center(
-      child : FlatButton(
-        color : Colors.redAccent,
-        padding : EdgeInsets.zero, 
-        height : 40,
-        child : Text(
-          'PING',
-          style : TextStyle(
-            color : Colors.white,
-            fontSize : 15,
-            fontWeight : FontWeight.bold
-          )
-        ),
-        onPressed : () async{
-        },
-        shape : RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10)
-        )
+  Widget build(BuildContext context){
+    scaffold = context;
+    return Scaffold(
+      body : Builder(
+        builder : (BuildContext context){
+          this.scaffold = context;
+          return SafeArea(
+            child : Center(
+              child : FlatButton(
+                color : Colors.redAccent,
+                padding : EdgeInsets.zero, 
+                height : 40,
+                child : Text(
+                  'PING',
+                  style : TextStyle(
+                    color : Colors.white,
+                    fontSize : 15,
+                    fontWeight : FontWeight.bold
+                  )
+                ),
+                onPressed : ping,
+                shape : RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)
+                )
+              )
+            )
+          );
+        }
       )
-    )
-  );
+    );
+  }
 
   @override
   void initState(){
@@ -77,28 +83,93 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void init() async{
-    Map data = await login('driver@qb.menu', 'abcd1234');
-    ably.RealtimeChannel? chansub, chanpub;
+    List<String> emails = ['driver@qb.menu', 'deen@qb.menu'];
+    users.clear();
+    for(String email in emails){
+      User? user = await connect(email);
+      if(user != null) users[email] = user;
+    }
+  }
+
+  Future alert(String text){
+    ScaffoldState ss = Scaffold.of(scaffold!);
+    return ss.showSnackBar(SnackBar(
+      duration : Duration(milliseconds : text.length * 100),
+      backgroundColor : Colors.redAccent,
+      content : WillPopScope(
+        onWillPop: () async{
+          ss.removeCurrentSnackBar();
+          return true;
+        },
+        child: Row(
+          children: <Widget>[
+            Expanded(child : Text(text, style: TextStyle(
+              color : Colors.white, fontSize: 18
+            ))),
+            IconButton(
+              icon : Icon(Icons.close), color : Colors.white,
+              onPressed: () => ss.removeCurrentSnackBar()
+            )
+          ],
+        ),
+      )
+    )).closed;
+  }
+
+  Future<User?> connect(String email) async{
+    ably.RealtimeChannel? channel;
+    SharedPreferences spi = await SharedPreferences.getInstance();
+    String? token = spi.getString('token.${email}');
+    String? refresh = spi.getString('refresh.${email}');
+    String? id = spi.getString('id.${email}');
+    Map datalogin = {};
+    if(token != null) datalogin = {'id' : id, 'token' : token, 'refresh' : refresh};
+    if(datalogin.isEmpty){
+      datalogin = await login(email, 'abcd1234');
+      print('LOGIN : ${datalogin}');
+      spi.setString('token.${email}', datalogin['token']);
+      spi.setString('refresh.${email}', datalogin['refresh']);
+      spi.setString('id.${email}', datalogin['id']);
+    }
     ably.ClientOptions options = ably.ClientOptions(
-      clientId : data['id'],
-      authUrl : 'https://staging-api.quickbite.menu/api/v1/drivers/ably-auth',
-      authHeaders : {
-        'Authorization' : data['token']
-      }
+      authCallback : (ably.TokenParams params) async =>
+        ably.TokenDetails.fromMap(await getablytoken(datalogin) as Map<String, dynamic>)
     );
     ably.Realtime realtime = await ably.Realtime(options : options);
-    return;
     await realtime.connection.on().listen((ably.ConnectionStateChange csc){
-      print('ConnectionStateChange : ${csc}');
+      print('ConnectionStateChange (${email}) : ${csc.current}');
     });
-    chansub = await realtime.channels.get('task${data['id']}');
-    chanpub = await realtime.channels.get('staging.driver.location');
-    await chansub.on().listen((ably.ChannelStateChange csc) async {
-      print('ChannelStateChange : ${csc}');
+    channel = await realtime.channels.get('task${datalogin['id']}');
+    if(channel == null) return null;
+    await channel.on().listen((ably.ChannelStateChange csc) async {
+      print('ChannelStateChange (${email}) : ${csc.current}');
     });
-    StreamSubscription<ably.Message> subs = chansub.subscribe().listen((ably.Message message){
-      print('MESSAGE : ${message}');
+    StreamSubscription<ably.Message> subs = channel.subscribe().listen((ably.Message message){
+      alert('To : ${email} : ${message.data}');
     });
+    return User() .. channel = channel .. email = email .. id = id .. realtime = realtime;
+  }
+
+  Future<bool> addtarget(String email, String chanid) async{
+    if(users[email] == null) return false;
+    ably.RealtimeChannel? channel = await users[email]?.realtime?.channels.get('task${chanid}');
+    if(channel == null) return false;
+    await channel.on().listen((ably.ChannelStateChange csc) async {
+      print('ChannelStateChange (${chanid}) : ${csc.current}');
+    });
+    users[email]?.target[chanid] = channel;
+    return true;
+  }
+
+  Future<void> ping() async{
+    String target = '6c7fa647-5d53-4032-8a58-0cb49934b09d';
+    String user = 'deen@qb.menu';
+    String text = 'Test Ably messaging';
+    ably.RealtimeChannel? channel = users[user]?.target[target];
+    if(channel == null) if(!(await addtarget(user, target))) return;
+    if(channel == null) return;
+    ably.Message message = ably.Message(clientId : target, data : text);
+    channel.publish(message : message);
   }
 
   Future<Map> login(String email, String password) async{
@@ -114,4 +185,24 @@ class _MyHomePageState extends State<MyHomePage> {
       'refresh' : res.headers['x-driver-refresh-token']
     };
   }
+
+  Future<Map> getablytoken(Map data) async{
+    Map<String, String> headers = {
+      'Content-Type' : 'application/json',
+      'authorization' : data['token'],
+      'refresh' : data['refresh']
+    };
+    Uri uri = Uri.https(Env.url, Env.path + 'ably-token');
+    http.Response res = await http.post(uri, headers : headers);
+    if(res.statusCode != 200) return {};
+    return json.decode(res.body);
+  }
+}
+
+class User{
+
+  String? email, id;
+  ably.RealtimeChannel? channel;
+  ably.Realtime? realtime;
+  Map<String, ably.RealtimeChannel> target = {};
 }
